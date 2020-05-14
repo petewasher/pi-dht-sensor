@@ -10,21 +10,26 @@ from influxdb import InfluxDBClient
 import syslog
 syslog.syslog("Temperature Reading Started")
 
+# Create the device using GPIO 4
 dhtDevice = adafruit_dht.DHT11(board.D4)
 
+# Temperature and humidity
 t = None
-t_last = None
 h = None
 
+# As te adafruit example tells us, the comms are 
+# sometimes flaky. We need to try a few times 
+# potentially, otherwise we'll get None readings 
+# for temperature and humidity.
 attempts = 15
 while attempts > 0:
    sleep(1)
    attempts = attempts - 1
-   print(attempts)
    try: 
        t = dhtDevice.temperature
        h = dhtDevice.humidity
        if (t is not None) and (h is not None):
+          # Success!
           print (t)
           print (h)
           break
@@ -47,15 +52,12 @@ if (t is None) or (h is None):
    syslog.syslog(syslog.LOG_INFO, "Catastrophic fail to get reading after many attempts")
    exit(1)
 
+# Sanity check the readings. Sometimes they spike?? not clear why yet.
 if (t < 10) or (t > 35) :
-    syslog.syslog(syslog.LOG_WARNING, "Implausible temperature {0}, last {1}. Abandon".format(t, t_last))
+    syslog.syslog(syslog.LOG_WARNING, "Implausible temperature {0}. Abandon".format(t))
     exit(1)
 
-t_last = t
-
-CALIBRATION_OFFSET = -2.0
-t += CALIBRATION_OFFSET
-
+# Prep some JSON we will send to influxdb:
 json_body = [
         {
             "measurement": "temperature",
@@ -71,6 +73,9 @@ json_body = [
             }
         ]
 
+# Post a message in the syslog to say what we read - useful for tracking
 syslog.syslog(syslog.LOG_INFO, "Temp: {:.1f} C, Hum: {}%".format(t,h))
+
+# Connect to the influxdb, setting all these settings as appropriate. 
 client = InfluxDBClient('influxserver.lan', 8086, 'influx_username', 'influx_password', 'influx_database_name_here')
 client.write_points(json_body)
